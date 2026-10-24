@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: punarvasan-backend
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+    disk:
+      name: punarvasan-data
+      mountPath: /var/data
+      sizeGB: 1

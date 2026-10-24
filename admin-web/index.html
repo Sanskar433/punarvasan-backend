@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Punarvasan Tracker — Real-Time Slum Redevelopment Progress</title>
+  <meta name="description" content="Punarvasan Tracker: Real-time construction progress tracking for SRA/MHADA/DRP slum redevelopment projects in Mumbai. For residents, contractors, and government officials." />
+  
+  <!-- PWA & Mobile Web App Meta -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0B0F19" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Punarvasan" />
+  <link rel="apple-touch-icon" href="/icon.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- National / State Tricolor Ribbon -->
+  <div class="gov-tricolor-bar"></div>
+
+  <div id="app">
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen active">
+      <div class="login-bg">
+        <div class="login-bg-pattern"></div>
+      </div>
+      <div class="login-container">
+        <!-- Official Government Header Block -->
+        <div class="gov-masthead">
+          <div class="gov-seal">
+            <svg width="48" height="48" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="22" cy="22" r="21" fill="#FFFFFF" stroke="#D97706" stroke-width="2"/>
+              <circle cx="22" cy="22" r="18" stroke="#1D4ED8" stroke-width="1" stroke-dasharray="2 2"/>
+              <!-- State Emblem Pillars / Building Crest -->
+              <path d="M14 28V18L22 13L30 18V28H14Z" fill="#F1F5F9" stroke="#D97706" stroke-width="1.5"/>
+              <path d="M18 28V21M22 28V19M26 28V21" stroke="#1E293B" stroke-width="1.5"/>
+              <circle cx="22" cy="10" r="2" fill="#D97706"/>
+              <path d="M12 31H32" stroke="#D97706" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="gov-masthead-text">
+            <span class="gov-state-name">GOVERNMENT OF MAHARASHTRA • महाराष्ट्र शासन</span>
+            <h1 class="brand-name">Punarvasan Portal • पुनर्वसन</h1>
+            <p class="brand-tagline">Slum Rehabilitation Authority (SRA) & MHADA Monitoring System</p>
+          </div>
+        </div>
+
+        <div class="login-card">
+          <!-- Auth Mode Switcher Tabs -->
+          <div class="auth-mode-switch">
+            <button type="button" class="auth-mode-tab active" id="auth-tab-signin" onclick="switchAuthMode('signin')">
+              Sign In
+            </button>
+            <button type="button" class="auth-mode-tab" id="auth-tab-register" onclick="switchAuthMode('register')">
+              Register New Account
+            </button>
+          </div>
+
+          <!-- SIGN IN VIEW -->
+          <div id="signin-view">
+            <div class="login-card-header">
+              <h2>Welcome Back</h2>
+              <p>Sign in with your mobile number and password</p>
+            </div>
+
+            <form id="signin-form" onsubmit="handlePasswordLogin(event)">
+              <div class="role-selector" id="role-selector">
+                <button type="button" class="role-btn active" data-role="resident" id="role-resident">
+                  <span class="role-icon">🏠</span>
+                  <span class="role-label">Resident</span>
+                </button>
+                <button type="button" class="role-btn" data-role="contractor" id="role-contractor">
+                  <span class="role-icon">🏗️</span>
+                  <span class="role-label">Contractor</span>
+                </button>
+                <button type="button" class="role-btn" data-role="government" id="role-government">
+                  <span class="role-icon">🏛️</span>
+                  <span class="role-label">Govt / SRA</span>
+                </button>
+              </div>
+
+              <div class="form-group">
+                <label for="mobile-input">Mobile Number</label>
+                <input type="tel" id="mobile-input" placeholder="10-digit number (e.g. 8828390911)" maxlength="15" autocomplete="tel" required />
+              </div>
+
+              <div class="form-group">
+                <label for="password-input">Password</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="password-input" placeholder="Enter your password" autocomplete="current-password" required />
+                  <button type="button" class="toggle-password-btn" onclick="togglePasswordVisibility('password-input')" aria-label="Toggle password visibility">👁️</button>
+                </div>
+              </div>
+
+              <button type="submit" class="btn-primary" id="signin-submit-btn">
+                <span>Sign In</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+
+              <div class="auth-bottom-link">
+                <span>Don't have an account yet?</span>
+                <a href="javascript:void(0)" onclick="switchAuthMode('register')">Register here</a>
+              </div>
+            </form>
+          </div>
+
+          <!-- REGISTRATION VIEW -->
+          <div id="register-view" class="hidden">
+            <div class="login-card-header">
+              <h2>Create an Account</h2>
+              <p>Select your role and complete your profile for redevelopment tracking</p>
+            </div>
+
+            <div class="role-selector" id="reg-role-selector">
+              <button type="button" class="role-btn active" data-role="resident" id="reg-role-resident" onclick="selectRegRole('resident')">
+                <span class="role-icon">🏠</span>
+                <span class="role-label">Resident</span>
+              </button>
+              <button type="button" class="role-btn" data-role="contractor" id="reg-role-contractor" onclick="selectRegRole('contractor')">
+                <span class="role-icon">🏗️</span>
+                <span class="role-label">Contractor</span>
+              </button>
+              <button type="button" class="role-btn" data-role="government" id="reg-role-government" onclick="selectRegRole('government')">
+                <span class="role-icon">🏛️</span>
+                <span class="role-label">Govt / SRA</span>
+              </button>
+            </div>
+
+            <form id="register-form" onsubmit="handleRegistration(event)">
+              <!-- Common Fields -->
+              <div class="form-group">
+                <label for="reg-name" id="reg-name-label">Full Name *</label>
+                <input type="text" id="reg-name" placeholder="Enter your full name" required />
+              </div>
+
+              <div class="form-group">
+                <label for="reg-mobile">Mobile Number (10 Digits) *</label>
+                <input type="tel" id="reg-mobile" placeholder="e.g. 9820012345" maxlength="15" required />
+              </div>
+
+              <div class="form-group">
+                <label for="reg-password">Create Password *</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="reg-password" placeholder="Choose a password (min. 4 characters)" minlength="4" autocomplete="new-password" required />
+                  <button type="button" class="toggle-password-btn" onclick="togglePasswordVisibility('reg-password')" aria-label="Toggle password visibility">👁️</button>
+                </div>
+              </div>
+
+              <!-- Resident Specific Fields -->
+              <div id="reg-fields-resident" class="reg-role-fields">
+                <div class="form-group">
+                  <label for="reg-resident-project">Rehabilitation Scheme / Project *</label>
+                  <select id="reg-resident-project" required>
+                    <option value="">Loading available projects...</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="reg-unit">Allotted Flat / Unit *</label>
+                    <input type="text" id="reg-unit" placeholder="e.g. Wing B, Flat 402" required />
+                  </div>
+                  <div class="form-group">
+                    <label for="reg-aadhaar">Aadhaar (Optional)</label>
+                    <input type="text" id="reg-aadhaar" placeholder="12-digit Aadhaar" maxlength="12" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="reg-household">Household / Hutment No.</label>
+                    <input type="text" id="reg-household" placeholder="e.g. SRA-H-104" />
+                  </div>
+                  <div class="form-group">
+                    <label for="reg-ward">Ward Number</label>
+                    <input type="text" id="reg-ward" placeholder="e.g. Ward 21" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Contractor Specific Fields -->
+              <div id="reg-fields-contractor" class="reg-role-fields hidden">
+                <div class="form-group">
+                  <label for="reg-company-name">Company / Agency Name *</label>
+                  <input type="text" id="reg-company-name" placeholder="e.g. Apex Urban Infra Pvt. Ltd." />
+                </div>
+                <div class="form-group">
+                  <label for="reg-contractor-project">Assigned Project *</label>
+                  <select id="reg-contractor-project">
+                    <option value="">Loading available projects...</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="reg-license">PWD / SRA License No. *</label>
+                    <input type="text" id="reg-license" placeholder="e.g. PWD-MH-2024-819" />
+                  </div>
+                  <div class="form-group">
+                    <label for="reg-gst">GST Number (Optional)</label>
+                    <input type="text" id="reg-gst" placeholder="27AAAAA0000A1Z5" maxlength="15" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Government / SRA Specific Fields -->
+              <div id="reg-fields-government" class="reg-role-fields hidden">
+                <div class="form-group">
+                  <label for="reg-dept">Government Department *</label>
+                  <select id="reg-dept">
+                    <option value="Slum Rehabilitation Authority (SRA)">Slum Rehabilitation Authority (SRA)</option>
+                    <option value="Maharashtra Housing and Area Development Authority (MHADA)">MHADA</option>
+                    <option value="Dharavi Redevelopment Project (DRP)">Dharavi Redevelopment Project (DRP)</option>
+                    <option value="Brihanmumbai Municipal Corporation (BMC)">BMC / Ward Office</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="reg-designation">Designation / Role *</label>
+                    <input type="text" id="reg-designation" placeholder="e.g. Executive Engineer / Ward Officer" />
+                  </div>
+                  <div class="form-group">
+                    <label for="reg-officer-ward">Jurisdiction / Ward</label>
+                    <input type="text" id="reg-officer-ward" placeholder="e.g. Ward 21 (Bandra East)" />
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn-primary" id="reg-submit-btn">
+                <span>Complete Registration & Sign In</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+
+              <div class="auth-bottom-link">
+                <span>Already have an account?</span>
+                <a href="javascript:void(0)" onclick="switchAuthMode('signin')">Sign In with mobile</a>
+              </div>
+            </form>
+          </div>
+
+          <div id="login-error" class="error-banner hidden"></div>
+          <div id="login-success" class="success-banner hidden"></div>
+        </div>
+
+        <div class="login-footer">
+          <p>SRA / MHADA / DRP Pilot — Ward-level Transparency Initiative</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main App Screen -->
+    <div id="app-screen" class="screen hidden">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-brand">
+            <div class="sidebar-gov-crest">
+              <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
+                <circle cx="16" cy="16" r="15" fill="#FFFFFF" stroke="#D97706" stroke-width="1.5"/>
+                <path d="M10 20V13L16 9L22 13V20H10Z" fill="#F1F5F9" stroke="#D97706" stroke-width="1.2"/>
+                <path d="M13 20V15M16 20V14M19 20V15" stroke="#1E293B" stroke-width="1.2"/>
+                <circle cx="16" cy="7" r="1.5" fill="#D97706"/>
+                <path d="M9 22H23" stroke="#D97706" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="sidebar-brand-text">
+              <span class="brand-title">PUNARVASAN</span>
+              <span class="brand-sub">SRA • Maharashtra</span>
+            </div>
+          </div>
+          <button class="sidebar-close" onclick="toggleSidebar()" aria-label="Close sidebar">✕</button>
+        </div>
+
+        <div class="sidebar-user" id="sidebar-user">
+          <div class="user-avatar" id="user-avatar">U</div>
+          <div class="user-info">
+            <span class="user-name" id="user-name-display">Loading...</span>
+            <span class="user-role" id="user-role-display">-</span>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" id="sidebar-nav">
+          <!-- Nav items injected by JS -->
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="sidebar-logout" onclick="logout()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+      <!-- Main Content -->
+      <div class="main-content">
+        <header class="topbar">
+          <button class="topbar-menu" onclick="toggleSidebar()" aria-label="Toggle menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          </button>
+          <div class="topbar-title" id="topbar-title">Dashboard</div>
+          <div class="gov-topbar-dept">
+            <span class="gov-emblem-dot"></span>
+            <span>Slum Rehabilitation Authority (SRA) • Government of Maharashtra</span>
+          </div>
+          <div class="topbar-actions">
+            <div class="lang-selector" id="lang-selector">
+              <button class="lang-btn active" data-lang="en" onclick="setLanguage('en')">EN</button>
+              <button class="lang-btn" data-lang="mr" onclick="setLanguage('mr')">मराठी</button>
+              <button class="lang-btn" data-lang="hi" onclick="setLanguage('hi')">हिंदी</button>
+            </div>
+            <button class="notif-btn" id="notif-btn" onclick="showPage('notifications')" title="Notifications">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+              <span class="notif-badge hidden" id="notif-badge">0</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="page-container" id="page-container">
+          <!-- Pages injected here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration note:', err));
+      });
+    }
+  </script>
+</body>
+</html>
