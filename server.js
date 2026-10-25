@@ -42,6 +42,11 @@ const {
   getNotice,
   getAllProjects,
   createRoleAccount,
+  approveRoleAccount,
+  updateRoleAccountStatus,
+  getResident,
+  getContractor,
+  getPendingRoleAccounts,
   assignProject,
   hashPassword,
 } = require('./database');
@@ -186,6 +191,20 @@ app.post('/api/auth/request-otp', async (req, res) => {
       return res.status(404).json({ error: 'No account is registered for this role and mobile number.' });
     }
 
+    if (account.account_status === 'pending') {
+      return res.status(403).json({
+        error: 'Your registration is pending approval by a Government Officer. Once your identity documents are verified, you will be granted access.',
+        account_status: 'pending',
+      });
+    }
+
+    if (account.account_status === 'rejected') {
+      return res.status(403).json({
+        error: 'Your registration was rejected by the Government Officer. Please contact support or re-register with valid documents.',
+        account_status: 'rejected',
+      });
+    }
+
     // DEV BYPASS: If real SMS is not explicitly enabled or Twilio is not setup, use 123456
     if (process.env.USE_REAL_SMS !== 'true') {
       console.log(`[DEV MODE] OTP sent for ${role} - ${normalizedPhone.mobile}. Enter code: 123456`);
@@ -222,6 +241,20 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     const account = await getRoleAccount(role, normalizedPhone.mobile);
     if (!account) {
       return res.status(401).json({ error: 'No account is registered for this role and mobile number.' });
+    }
+
+    if (account.account_status === 'pending') {
+      return res.status(403).json({
+        error: 'Your registration is pending approval by a Government Officer. Once your identity documents are verified, you will be granted access.',
+        account_status: 'pending',
+      });
+    }
+
+    if (account.account_status === 'rejected') {
+      return res.status(403).json({
+        error: 'Your registration was rejected by the Government Officer. Please contact support or re-register with valid documents.',
+        account_status: 'rejected',
+      });
     }
 
     // DEV BYPASS: accept 123456 in dev mode
@@ -285,6 +318,20 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!checkPassword(password, account.password_hash)) {
       return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+    }
+
+    if (account.account_status === 'pending') {
+      return res.status(403).json({
+        error: 'Your registration is pending approval by a Government Officer. Once your identity documents are verified, you will be granted access.',
+        account_status: 'pending',
+      });
+    }
+
+    if (account.account_status === 'rejected') {
+      return res.status(403).json({
+        error: 'Your registration was rejected by the Government Officer. Please contact support or re-register with valid documents.',
+        account_status: 'rejected',
+      });
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -416,6 +463,7 @@ app.post('/api/auth/register', async (req, res) => {
       try {
         await insertResident({
           fullName: cleanName,
+          mobile: normalizedPhone.mobile,
           aadhaarNumber: aadhaarNumber || docIdNumber || '',
           householdNumber: householdNumber || '',
           wardNumber: wardNumber || '',
@@ -461,6 +509,7 @@ app.post('/api/auth/register', async (req, res) => {
       try {
         await insertContractor({
           companyName: contractorCompany,
+          mobile: normalizedPhone.mobile,
           licenseNumber: licenseNumber || docIdNumber || `LIC-MH-${normalizedPhone.mobile.slice(-4)}`,
           category: category || 'General Building Construction',
           gstNumber: gstNumber || '',
@@ -484,7 +533,41 @@ app.post('/api/auth/register', async (req, res) => {
       console.log(`[GOVT REGISTER] Officer registered: ${cleanName} - Dept: ${department || 'SRA'} - ID: ${docIdNumber} - Doc: ${finalDocProof}`);
     }
 
-    // Automatically create session and token so user is logged in right away
+    // Also sync account to Supabase Cloud so it appears in Supabase Dashboard
+    try {
+      const { supabaseAdmin } = require('./backend/src/supabaseClient');
+      if (supabaseAdmin) {
+        await supabaseAdmin.auth.admin.createUser({
+          phone: normalizedPhone.phone,
+          password: req.body.password || 'Password@123',
+          phone_confirm: true,
+          user_metadata: {
+            full_name: cleanName,
+            role,
+            mobile: normalizedPhone.mobile,
+            id_number: docIdNumber || '',
+            document_proof: finalDocProof || '',
+            source: 'Punarvasan Mobile App',
+          },
+        });
+        console.log(`[SUPABASE SYNC] Account synced to Supabase: ${cleanName} (${role})`);
+      }
+    } catch (sbErr) {
+      console.log(`[SUPABASE SYNC NOTE] ${sbErr.message}`);
+    }
+
+    // For resident and contractor, account must be approved by Government Officer first!
+    if (role === 'resident' || role === 'contractor') {
+      console.log(`[REGISTRATION] New ${role} registered (pending government approval): ${cleanName} (${normalizedPhone.mobile})`);
+      return res.status(201).json({
+        success: true,
+        pending: true,
+        account_status: 'pending',
+        message: 'Registration submitted successfully! Your account and identity documents have been submitted to Government Officers for verification. Once approved, you will be able to log in.',
+      });
+    }
+
+    // For government officers, auto-approved
     const token = crypto.randomBytes(32).toString('hex');
     const session = {
       role,
@@ -498,6 +581,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     return res.status(201).json({
       success: true,
+      pending: false,
       message: `Account created successfully! Welcome, ${cleanName}.`,
       token,
       user: session,
@@ -1020,11 +1104,12 @@ function validateContractorVerification(data = {}) {
   };
 }
 
-function buildAdminQueue({ residents = [], contractors = [] } = {}) {
+function buildAdminQueue({ residents = [], contractors = [], pendingAccounts = [] } = {}) {
   const residentRows = (residents || [])
     .map((row) => ({
       id: row.id,
       type: 'resident',
+      mobile: row.mobile || '',
       name: row.fullName || row.name || 'Resident',
       status: row.verificationStatus || 'Pending',
       documentProof: row.documentProof || '',
@@ -1039,6 +1124,7 @@ function buildAdminQueue({ residents = [], contractors = [] } = {}) {
     .map((row) => ({
       id: row.id,
       type: 'contractor',
+      mobile: row.mobile || '',
       name: row.companyName || row.name || 'Contractor',
       companyName: row.companyName || '',
       contactPerson: row.contactPerson || '',
@@ -1050,12 +1136,37 @@ function buildAdminQueue({ residents = [], contractors = [] } = {}) {
       createdAt: row.createdAt || new Date().toISOString(),
     }));
 
-  return [...residentRows, ...contractorRows].sort((a, b) => {
+  const existingMobiles = new Set([
+    ...residentRows.map((r) => r.mobile).filter(Boolean),
+    ...contractorRows.map((c) => c.mobile).filter(Boolean),
+  ]);
+
+  const fallbackAccountRows = (pendingAccounts || [])
+    .filter((acc) => !existingMobiles.has(acc.mobile))
+    .map((acc) => ({
+      id: `acc_${acc.mobile}`,
+      type: acc.role,
+      mobile: acc.mobile,
+      name: acc.name,
+      companyName: acc.role === 'contractor' ? acc.name : '',
+      contactPerson: acc.role === 'contractor' ? acc.name : '',
+      status: 'Pending',
+      documentProof: acc.document_proof || '',
+      aadhaarNumber: acc.role === 'resident' ? (acc.id_number || '') : '',
+      licenseNumber: acc.role === 'contractor' ? (acc.id_number || '') : '',
+      createdAt: new Date().toISOString(),
+    }));
+
+  return [...residentRows, ...contractorRows, ...fallbackAccountRows].sort((a, b) => {
     if (a.status === 'Pending' && b.status !== 'Pending') return -1;
     if (b.status === 'Pending' && a.status !== 'Pending') return 1;
     const left = new Date(a.createdAt).getTime();
     const right = new Date(b.createdAt).getTime();
-    return right - left;
+    const timeDiff = right - left;
+    if (Math.abs(timeDiff) > 1000) return timeDiff;
+    if (a.type === 'resident' && b.type !== 'resident') return -1;
+    if (b.type === 'resident' && a.type !== 'resident') return 1;
+    return 0;
   });
 }
 
@@ -1093,8 +1204,12 @@ app.get('/api/dashboard', async (req, res) => {
 
 app.get('/api/admin/queue', async (req, res) => {
   try {
-    const [residents, contractors] = await Promise.all([getResidents(), getContractors()]);
-    const queue = buildAdminQueue({ residents, contractors });
+    const [residents, contractors, pendingAccounts] = await Promise.all([
+      getResidents(),
+      getContractors(),
+      getPendingRoleAccounts(),
+    ]);
+    const queue = buildAdminQueue({ residents, contractors, pendingAccounts });
     res.json({ success: true, queue });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch admin queue' });
@@ -1110,14 +1225,92 @@ app.post('/api/admin/verify/:type/:id', async (req, res) => {
     return res.status(400).json({ error: 'Invalid verification type' });
   }
 
-  const decision = applyVerificationDecision(type, Number(id), status || 'Approved', message || `${type} document reviewed by admin.`);
+  const decision = applyVerificationDecision(type, id, status || 'Approved', message || `${type} document reviewed by admin.`);
 
   try {
-    await updateVerificationStatus(type, Number(id), decision.status, decision.message);
-    await logVerification(type, Number(id), decision.status, decision.message);
-    res.json({ success: true, decision });
+    const isApproved = decision.status === 'Approved';
+    const newAccountStatus = isApproved ? 'approved' : 'rejected';
+    let applicantMobile = null;
+
+    if (String(id).startsWith('acc_')) {
+      applicantMobile = String(id).replace('acc_', '');
+    } else {
+      const numId = Number(id);
+      await updateVerificationStatus(type, numId, decision.status, decision.message);
+      await logVerification(type, numId, decision.status, decision.message);
+
+      const record = type === 'resident' ? await getResident(numId) : await getContractor(numId);
+      if (record) {
+        if (record.mobile) {
+          applicantMobile = record.mobile;
+        } else {
+          const nameToMatch = type === 'resident' ? record.fullName : (record.contactPerson || record.companyName);
+          const idToMatch = type === 'resident' ? record.aadhaarNumber : record.licenseNumber;
+          const docToMatch = record.documentProof;
+          const { db } = require('./database');
+          const matchingAccounts = await new Promise((resolve) => {
+            db.all(
+              'SELECT mobile FROM role_accounts WHERE role = ? AND (name = ? OR id_number = ? OR document_proof = ?)',
+              [type, nameToMatch || '', idToMatch || '', docToMatch || ''],
+              (err, rows) => resolve(rows || [])
+            );
+          });
+          if (matchingAccounts && matchingAccounts.length > 0) {
+            applicantMobile = matchingAccounts[0].mobile;
+          }
+        }
+      }
+    }
+
+    if (applicantMobile) {
+      await updateRoleAccountStatus(type, applicantMobile, newAccountStatus);
+      console.log(`[VERIFICATION] Account ${type} (${applicantMobile}) status updated to: ${newAccountStatus}`);
+
+      // Send in-app notification to the applicant
+      try {
+        await createNotification({
+          audienceRole: type,
+          recipientMobile: applicantMobile,
+          projectId: '',
+          title: isApproved ? 'Account Approved by Government' : 'Account Verification Notice',
+          message: isApproved
+            ? 'Your identity documents have been verified and approved by the Government Officer. You now have full access to Punarvasan.'
+            : `Your verification was rejected: ${decision.message}`,
+        });
+      } catch (notifyErr) {
+        console.warn('Notification warning:', notifyErr.message);
+      }
+    }
+
+    res.json({ success: true, decision, accountStatus: newAccountStatus, mobile: applicantMobile });
   } catch (error) {
+    console.error('Failed to update verification status:', error);
     res.status(500).json({ error: 'Failed to update verification status' });
+  }
+});
+
+app.post('/api/admin/approve-account', async (req, res) => {
+  const { role, mobile, status = 'approved', message = '' } = req.body || {};
+  if (!allowedRoles.has(role) || !mobile) {
+    return res.status(400).json({ error: 'Role and mobile number are required.' });
+  }
+  try {
+    await updateRoleAccountStatus(role, mobile, status);
+    try {
+      await createNotification({
+        audienceRole: role,
+        recipientMobile: mobile,
+        projectId: '',
+        title: status === 'approved' ? 'Account Approved by Government' : 'Account Verification Notice',
+        message: status === 'approved'
+          ? 'Your identity documents have been verified and approved by the Government Officer. You now have full access to Punarvasan.'
+          : `Your identity verification was rejected: ${message || 'Please contact support.'}`,
+      });
+    } catch (_) {}
+    res.json({ success: true, role, mobile, account_status: status });
+  } catch (error) {
+    console.error('Approve account error:', error);
+    res.status(500).json({ error: 'Failed to update account status.' });
   }
 });
 

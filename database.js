@@ -73,6 +73,7 @@ function initSqliteDatabase() {
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    sqliteDb.run('ALTER TABLE residents ADD COLUMN mobile TEXT', () => {});
 
     sqliteDb.run(`
       CREATE TABLE IF NOT EXISTS contractors (
@@ -90,6 +91,7 @@ function initSqliteDatabase() {
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    sqliteDb.run('ALTER TABLE contractors ADD COLUMN mobile TEXT', () => {});
 
     sqliteDb.run(`
       CREATE TABLE IF NOT EXISTS verification_logs (
@@ -133,6 +135,7 @@ function initSqliteDatabase() {
     sqliteDb.run('ALTER TABLE role_accounts ADD COLUMN password_hash TEXT', () => {});
     sqliteDb.run('ALTER TABLE role_accounts ADD COLUMN document_proof TEXT', () => {});
     sqliteDb.run('ALTER TABLE role_accounts ADD COLUMN id_number TEXT', () => {});
+    sqliteDb.run("ALTER TABLE role_accounts ADD COLUMN account_status TEXT NOT NULL DEFAULT 'approved'", () => {});
 
     sqliteDb.run(`
       CREATE TABLE IF NOT EXISTS project_assignments (
@@ -398,6 +401,8 @@ async function initPostgresDatabase() {
       "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await postgresClient.query('ALTER TABLE residents ADD COLUMN IF NOT EXISTS mobile TEXT');
+  await postgresClient.query('ALTER TABLE contractors ADD COLUMN IF NOT EXISTS mobile TEXT');
 
   await postgresClient.query(`
     CREATE TABLE IF NOT EXISTS verification_logs (
@@ -433,9 +438,11 @@ async function initPostgresDatabase() {
       role TEXT NOT NULL,
       mobile TEXT NOT NULL,
       name TEXT NOT NULL,
+      account_status TEXT NOT NULL DEFAULT 'approved',
       PRIMARY KEY (role, mobile)
     )
   `);
+  await postgresClient.query("ALTER TABLE role_accounts ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'approved'");
   await postgresClient.query(`
     CREATE TABLE IF NOT EXISTS project_assignments (
       role TEXT NOT NULL,
@@ -584,10 +591,11 @@ function insertResident(data) {
 function insertResidentSqlite(data) {
   return new Promise((resolve, reject) => {
     sqliteDb.run(
-      `INSERT INTO residents (fullName, aadhaarNumber, householdNumber, wardNumber, plotNumber, landDocumentType, landDocumentNumber, surveyNumber, registrationDate, documentProof, verificationStatus)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO residents (fullName, mobile, aadhaarNumber, householdNumber, wardNumber, plotNumber, landDocumentType, landDocumentNumber, surveyNumber, registrationDate, documentProof, verificationStatus)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.fullName,
+        data.mobile || '',
         data.aadhaarNumber,
         data.householdNumber || '',
         data.wardNumber || '',
@@ -612,10 +620,11 @@ async function insertResidentPostgres(data) {
   if (!client) throw new Error('PostgreSQL connection not configured');
 
   const result = await postgresClient.query(
-    `INSERT INTO residents ("fullName", "aadhaarNumber", "householdNumber", "wardNumber", "plotNumber", "landDocumentType", "landDocumentNumber", "surveyNumber", "registrationDate", "documentProof", "verificationStatus")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    `INSERT INTO residents ("fullName", mobile, "aadhaarNumber", "householdNumber", "wardNumber", "plotNumber", "landDocumentType", "landDocumentNumber", "surveyNumber", "registrationDate", "documentProof", "verificationStatus")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
     [
       data.fullName,
+      data.mobile || '',
       data.aadhaarNumber,
       data.householdNumber || '',
       data.wardNumber || '',
@@ -643,10 +652,11 @@ function insertContractor(data) {
 function insertContractorSqlite(data) {
   return new Promise((resolve, reject) => {
     sqliteDb.run(
-      `INSERT INTO contractors (companyName, licenseNumber, category, gstNumber, registrationNumber, officeAddress, contactPerson, validity, documentProof, verificationStatus)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO contractors (companyName, mobile, licenseNumber, category, gstNumber, registrationNumber, officeAddress, contactPerson, validity, documentProof, verificationStatus)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.companyName,
+        data.mobile || '',
         data.licenseNumber,
         data.category || 'Class A',
         data.gstNumber,
@@ -670,10 +680,11 @@ async function insertContractorPostgres(data) {
   if (!client) throw new Error('PostgreSQL connection not configured');
 
   const result = await postgresClient.query(
-    `INSERT INTO contractors ("companyName", "licenseNumber", category, "gstNumber", "registrationNumber", "officeAddress", "contactPerson", validity, "documentProof", "verificationStatus")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    `INSERT INTO contractors ("companyName", mobile, "licenseNumber", category, "gstNumber", "registrationNumber", "officeAddress", "contactPerson", validity, "documentProof", "verificationStatus")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
     [
       data.companyName,
+      data.mobile || '',
       data.licenseNumber,
       data.category || 'Class A',
       data.gstNumber,
@@ -850,10 +861,38 @@ async function workflowInsert(sql, params = []) {
 
 async function getRoleAccount(role, mobile) {
   const rows = await workflowAll(
-    'SELECT role, mobile, name, password_hash FROM role_accounts WHERE role = ? AND mobile = ?',
+    'SELECT role, mobile, name, password_hash, account_status FROM role_accounts WHERE role = ? AND mobile = ?',
     [role, mobile]
   );
   return rows[0] || null;
+}
+
+async function approveRoleAccount(role, mobile) {
+  return updateRoleAccountStatus(role, mobile, 'approved');
+}
+
+async function updateRoleAccountStatus(role, mobile, status) {
+  await workflowRun(
+    'UPDATE role_accounts SET account_status = ? WHERE role = ? AND mobile = ?',
+    [status, role, mobile]
+  );
+  return { role, mobile, account_status: status };
+}
+
+async function getResident(id) {
+  const rows = await workflowAll('SELECT * FROM residents WHERE id = ?', [id]);
+  return rows[0] || null;
+}
+
+async function getContractor(id) {
+  const rows = await workflowAll('SELECT * FROM contractors WHERE id = ?', [id]);
+  return rows[0] || null;
+}
+
+async function getPendingRoleAccounts() {
+  return workflowAll(
+    "SELECT role, mobile, name, document_proof, id_number, account_status FROM role_accounts WHERE account_status = 'pending'"
+  );
 }
 
 const PROJECT_SELECT_FIELDS = `
@@ -942,11 +981,14 @@ async function getAllProjects() {
 
 async function createRoleAccount({ role, mobile, name, password, documentProof = '', idNumber = '' }) {
   const passwordHash = password ? hashPassword(password) : hashPassword('123456');
+  // Government officers are auto-approved. Residents and contractors start as 'pending'
+  // and must be verified by a government officer before they can log in.
+  const accountStatus = role === 'government' ? 'approved' : 'pending';
   await workflowRun(
-    'INSERT OR REPLACE INTO role_accounts (role, mobile, name, password_hash, document_proof, id_number) VALUES (?, ?, ?, ?, ?, ?)',
-    [role, mobile, name, passwordHash, documentProof, idNumber]
+    'INSERT OR REPLACE INTO role_accounts (role, mobile, name, password_hash, document_proof, id_number, account_status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [role, mobile, name, passwordHash, documentProof, idNumber, accountStatus]
   );
-  return { role, mobile, name, documentProof, idNumber };
+  return { role, mobile, name, documentProof, idNumber, accountStatus };
 }
 
 async function assignProject({ role, mobile, projectId, unit = '' }) {
@@ -1345,6 +1387,11 @@ module.exports = {
   getNotice,
   getAllProjects,
   createRoleAccount,
+  approveRoleAccount,
+  updateRoleAccountStatus,
+  getResident,
+  getContractor,
+  getPendingRoleAccounts,
   assignProject,
   updateProjectContractor,
   hashPassword,

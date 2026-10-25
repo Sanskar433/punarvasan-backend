@@ -2212,8 +2212,8 @@ async function renderVerificationQueue(container) {
                       <td><span class="badge badge-yellow">${item.status}</span></td>
                       <td>
                         <div style="display:flex;gap:6px">
-                          <button class="btn-success" style="padding:4px 10px;font-size:11px" onclick="verifyApplicant('${item.type}', ${item.id}, 'Approved')">✓ Approve</button>
-                          <button class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="verifyApplicant('${item.type}', ${item.id}, 'Rejected')">✕ Reject</button>
+                          <button class="btn-success" style="padding:4px 10px;font-size:11px" onclick="verifyApplicant('${item.type}', '${item.id}', 'Approved')">✓ Approve</button>
+                          <button class="btn-danger" style="padding:4px 10px;font-size:11px" onclick="verifyApplicant('${item.type}', '${item.id}', 'Rejected')">✕ Reject</button>
                         </div>
                       </td>
                     </tr>
