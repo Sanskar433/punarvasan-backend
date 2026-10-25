@@ -12,7 +12,3 @@ services:
         value: production
       - key: PORT
         value: 3001
-    disk:
-      name: punarvasan-data
-      mountPath: /var/data
-      sizeGB: 1

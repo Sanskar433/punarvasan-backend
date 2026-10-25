@@ -53,8 +53,8 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-// On Render, use /var/data/uploads (persistent disk). Locally use project folder.
-const defaultUploadsDir = process.env.RENDER
+// On Render with persistent disk use /var/data/uploads. Otherwise use project folder.
+const defaultUploadsDir = (process.env.RENDER && fs.existsSync('/var/data'))
   ? '/var/data/uploads'
   : path.join(__dirname, 'uploads');
 const uploadsDirectory = process.env.UPLOADS_DIR || defaultUploadsDir;

@@ -1,3 +1,4 @@
+const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
@@ -10,8 +11,8 @@ function hashPassword(password) {
   return crypto.pbkdf2Sync(String(password), salt, 1000, 32, 'sha256').toString('hex');
 }
 
-// On Render, use /var/data (persistent disk). Locally use project root.
-const defaultDbPath = process.env.RENDER
+// On Render with persistent disk use /var/data. Otherwise use project root.
+const defaultDbPath = (process.env.RENDER && fs.existsSync('/var/data'))
   ? '/var/data/punarvasan.db'
   : path.join(__dirname, 'punarvasan.db');
 const dbPath = process.env.SQLITE_DB_PATH || defaultDbPath;
