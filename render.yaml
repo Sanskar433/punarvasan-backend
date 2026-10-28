@@ -14,3 +14,12 @@ services:
         value: 3001
       - key: NODE_VERSION
         value: 20.18.0
+
+      - key: SUPABASE_URL
+        value: https://tdmzscadnbskdnmjkgdl.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbXpzY2FkbmJza2RubWprZ2RsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MTg5ODQsImV4cCI6MjEwNzM5NDk4NH0.1FhfaL9h2yPe5nd18uhicqMDp3P9ki-XkYmb_4vMCUQ
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkbXpzY2FkbmJza2RubWprZ2RsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTgxODk4NCwiZXhwIjoyMTA3Mzk0OTg0fQ.7b_qHY5_NGK1jH0OFzks2NH0d9M8li8f5vZaj0bzEW0
+      - key: SUPABASE_STORAGE_BUCKET
+        value: progress-documents

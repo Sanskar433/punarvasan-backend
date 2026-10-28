@@ -3,7 +3,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { supabase } = require('./backend/src/supabaseClient');
+const { supabase, uploadToSupabaseStorage } = require('./backend/src/supabaseClient');
 const {
   initDatabase,
   insertResident,
@@ -177,6 +177,9 @@ async function notifyProjectAudience(projectId, title, message, reportId) {
     await createNotice({ projectId, title, message, reportId });
   }
 }
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok', server: 'punarvasan', time: new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.post('/api/auth/request-otp', async (req, res) => {
   const { role, mobile } = req.body || {};
@@ -412,17 +415,37 @@ app.post('/api/auth/register', async (req, res) => {
     // Process and save document proof (Aadhaar Card / License / Govt ID)
     let savedDocumentProof = '';
     const docImage = req.body.documentImage || req.body.documentProof;
+    console.log(`[DOC DEBUG] role=${role}, mobile=${normalizedPhone.mobile}, hasDocImage=${!!docImage}, docImageType=${typeof docImage}, docImageLen=${docImage ? String(docImage).length : 0}, docName=${req.body.documentName || 'none'}`);
     if (docImage && typeof docImage === 'string' && docImage.length > 50) {
       try {
-        await fs.promises.mkdir(uploadsDirectory, { recursive: true });
         const cleanBase64 = docImage.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(cleanBase64, 'base64');
         const docExt = (req.body.documentName && path.extname(req.body.documentName)) || '.jpg';
         const docFileName = `doc_${role}_${normalizedPhone.mobile}_${Date.now()}${docExt}`;
-        const docPath = path.join(uploadsDirectory, docFileName);
-        await fs.promises.writeFile(docPath, buffer);
-        savedDocumentProof = docFileName;
-        console.log(`[DOC UPLOAD] Saved verification document for ${role} (${normalizedPhone.mobile}): ${docFileName}`);
+        const contentType = docExt.toLowerCase() === '.pdf' ? 'application/pdf' : (docExt.toLowerCase() === '.png' ? 'image/png' : 'image/jpeg');
+
+        // 1. Try uploading directly to Supabase Storage
+        if (typeof uploadToSupabaseStorage === 'function') {
+          try {
+            const destPath = `verification/${role}/${docFileName}`;
+            const publicUrl = await uploadToSupabaseStorage(buffer, destPath, contentType);
+            if (publicUrl) {
+              savedDocumentProof = publicUrl;
+              console.log(`[SUPABASE STORAGE] Saved verification document for ${role} (${normalizedPhone.mobile}): ${publicUrl}`);
+            }
+          } catch (sbStorageErr) {
+            console.warn(`[SUPABASE STORAGE NOTE] Could not upload to Supabase, falling back to local storage:`, sbStorageErr.message);
+          }
+        }
+
+        // 2. Fallback to local storage if not saved to Supabase
+        if (!savedDocumentProof) {
+          await fs.promises.mkdir(uploadsDirectory, { recursive: true });
+          const docPath = path.join(uploadsDirectory, docFileName);
+          await fs.promises.writeFile(docPath, buffer);
+          savedDocumentProof = docFileName;
+          console.log(`[DOC UPLOAD] Saved verification document locally for ${role} (${normalizedPhone.mobile}): ${docFileName}`);
+        }
       } catch (docErr) {
         console.error('Failed to save document file:', docErr);
         savedDocumentProof = req.body.documentName || 'Document Attached';
@@ -704,9 +727,29 @@ app.post(
       const fileName = path.basename(suppliedName).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const extension = path.extname(fileName).replace(/[^\w.]/g, '').slice(0, 12);
       const storedName = `${crypto.randomUUID()}${extension}`;
-      await fs.promises.mkdir(uploadsDirectory, { recursive: true });
-      const storagePath = path.join(uploadsDirectory, storedName);
-      await fs.promises.writeFile(storagePath, req.body, { flag: 'wx' });
+      const mimeType = req.get('content-type') || 'application/octet-stream';
+      let storedReference = storedName;
+
+      // 1. Try uploading to Supabase Storage first
+      if (typeof uploadToSupabaseStorage === 'function') {
+        try {
+          const destPath = `projects/${projectId}/${storedName}`;
+          const publicUrl = await uploadToSupabaseStorage(req.body, destPath, mimeType);
+          if (publicUrl) {
+            storedReference = publicUrl;
+            console.log(`[SUPABASE STORAGE] Saved evidence for project ${projectId}: ${publicUrl}`);
+          }
+        } catch (sbErr) {
+          console.warn(`[SUPABASE STORAGE NOTE] Could not upload evidence to Supabase, falling back to local:`, sbErr.message);
+        }
+      }
+
+      // 2. Fallback to local storage if not saved to Supabase
+      if (storedReference === storedName) {
+        await fs.promises.mkdir(uploadsDirectory, { recursive: true });
+        const storagePath = path.join(uploadsDirectory, storedName);
+        await fs.promises.writeFile(storagePath, req.body, { flag: 'wx' });
+      }
 
       const latitude = parseFloat(req.get('x-latitude')) || null;
       const longitude = parseFloat(req.get('x-longitude')) || null;
@@ -723,18 +766,20 @@ app.post(
           uploadedByMobile: req.user.mobile,
           category,
           fileName: fileName || 'uploaded-file',
-          storedName,
-          mimeType: req.get('content-type') || 'application/octet-stream',
+          storedName: storedReference,
+          mimeType,
           fileSize: req.body.length,
           latitude,
           longitude,
           geotag,
         });
         res.status(201).json({
-          upload: { id, project_id: projectId, category, file_name: fileName, file_size: req.body.length, latitude, longitude, geotag },
+          upload: { id, project_id: projectId, category, file_name: fileName, file_size: req.body.length, latitude, longitude, geotag, url: storedReference },
         });
       } catch (error) {
-        await fs.promises.unlink(storagePath);
+        if (storedReference === storedName) {
+          await fs.promises.unlink(path.join(uploadsDirectory, storedName)).catch(() => {});
+        }
         throw error;
       }
     } catch (error) {
@@ -756,6 +801,9 @@ app.get('/api/uploads/:id/download', requireRole(), async (req, res) => {
       if (!update || update.status !== 'Approved') {
         return res.status(404).json({ error: 'File not found for this account.' });
       }
+    }
+    if (upload.stored_name && upload.stored_name.startsWith('http')) {
+      return res.redirect(upload.stored_name);
     }
     res.type(upload.mime_type);
     res.download(path.join(uploadsDirectory, upload.stored_name), upload.file_name);

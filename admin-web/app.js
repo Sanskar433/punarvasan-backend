@@ -2207,7 +2207,9 @@ async function renderVerificationQueue(container) {
                     <tr>
                       <td><span class="badge ${item.type === 'resident' ? 'badge-blue' : 'badge-purple'}">${item.type.toUpperCase()}</span></td>
                       <td><strong>${escHtml(item.name)}</strong></td>
-                      <td><code>${escHtml(item.documentProof)}</code></td>
+                      <td>${item.documentProof && item.documentProof.startsWith('http')
+                        ? `<a href="${escHtml(item.documentProof)}" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;text-decoration:none">🔍 View Document</a>`
+                        : `<code>${escHtml(item.documentProof || 'Document Attached')}</code>`}</td>
                       <td class="text-xs text-muted">${formatDate(item.createdAt)}</td>
                       <td><span class="badge badge-yellow">${item.status}</span></td>
                       <td>
