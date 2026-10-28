@@ -1,3 +1,11 @@
+// Polyfill WebSocket for Node.js environments
+if (typeof globalThis.WebSocket === "undefined") {
+  try {
+    globalThis.WebSocket = require("ws");
+  } catch (_) {
+    globalThis.WebSocket = class DummyWebSocket {};
+  }
+}
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
